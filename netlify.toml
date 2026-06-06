@@ -1,0 +1,36 @@
+[build]
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/cgs-control-lock"
+  to = "/.netlify/functions/cgs-control-lock"
+  status = 200
+
+[[redirects]]
+  from = "/deep-scan"
+  to = "/.netlify/functions/cgs-control-lock?package=CGS-DS-029"
+  status = 200
+
+[[redirects]]
+  from = "/grant-stack"
+  to = "/.netlify/functions/cgs-control-lock?package=CGS-GSS-149"
+  status = 200
+
+[[redirects]]
+  from = "/grant-package-factory"
+  to = "/.netlify/functions/cgs-control-lock?package=CGS-GPF-5000"
+  status = 200
+
+[[redirects]]
+  from = "/sbir-ota"
+  to = "/.netlify/functions/cgs-control-lock?package=CGS-SBIR-3500"
+  status = 200
+
+[[redirects]]
+  from = "/pilot-design"
+  to = "/.netlify/functions/cgs-control-lock?package=CGS-PILOT-7500"
+  status = 200
