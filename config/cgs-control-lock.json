@@ -1,0 +1,40 @@
+{
+  "name": "CGS Control Lock",
+  "version": "1.0",
+  "command": [
+    "Protect the engine",
+    "Display the capabilities",
+    "Sell the packages",
+    "Route everything through the box",
+    "No uncontrolled custom work",
+    "No public exposure of proprietary logic",
+    "No delivery without review",
+    "No partner representation without authority"
+  ],
+  "systems": {
+    "wix": "public capability and package display only",
+    "stripe": "payment and package code",
+    "portal": "intake and project status",
+    "netlify": "route and gate validation",
+    "replit_sentinel": "engine draft runtime",
+    "cgs": "human review and approval authority",
+    "google_drive": "official client artifact archive",
+    "gmail": "approved communications and delivery",
+    "dashboard": "common operating picture and status truth",
+    "github": "source control and governance truth",
+    "private_lab": "protected engine, OS, kernel governance, lab, and beta"
+  },
+  "hard_stops": [
+    "missing_project_id",
+    "missing_payment_or_authority",
+    "missing_intake",
+    "unknown_package_code",
+    "missing_tier",
+    "missing_gate",
+    "tier_3_without_review",
+    "scope_expansion_without_change_order",
+    "partner_without_authority",
+    "delivery_without_archive",
+    "public_exposure_of_proprietary_logic"
+  ]
+}
