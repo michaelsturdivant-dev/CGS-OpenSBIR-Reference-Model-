@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CGS Payment Gateway Adapter Payload",
+  "type": "object",
+  "required": ["gateway", "requested_action", "amount_cents", "currency", "human_gate_required", "clearance_status", "doctrine_acknowledged"],
+  "properties": {
+    "gateway": {"type": "string", "enum": ["stripe", "square", "affirm_via_stripe", "cherry"]},
+    "requested_action": {"type": "string", "enum": ["create_checkout", "create_invoice", "create_payment_link", "create_financing_offer", "refund", "webhook_event", "test_mode_only"]},
+    "amount_cents": {"type": "integer", "minimum": 0},
+    "currency": {"type": "string", "default": "usd"},
+    "product_or_service": {"type": "string"},
+    "customer_reference": {"type": "string"},
+    "human_gate_required": {"type": "string", "enum": ["Gate 4", "Gate 5", "Gate 6"]},
+    "clearance_status": {"type": "string", "enum": ["draft", "pending_human_approval", "approved", "rejected", "test_mode_only"]},
+    "evidence_required": {"type": "boolean", "default": true},
+    "live_mode_allowed": {"type": "boolean", "default": false},
+    "doctrine_acknowledged": {"type": "boolean"},
+    "notes": {"type": "string"}
+  }
+}
