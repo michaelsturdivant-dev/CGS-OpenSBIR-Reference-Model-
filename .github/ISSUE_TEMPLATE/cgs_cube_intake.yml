@@ -1,0 +1,59 @@
+name: CGS Cube Intake
+description: Classify a work item through the CGS Cube Method and clearance gates.
+title: "[CGS Intake]: "
+labels: ["cgs-intake", "cube-method", "human-clearance"]
+body:
+  - type: markdown
+    attributes:
+      value: "Use this template for CGS projects, APIs, webhooks, dashboards, schemas, repositories, deployments, grant packages, or external adapter requests."
+  - type: textarea
+    id: mission
+    attributes:
+      label: Mission
+    validations:
+      required: true
+  - type: textarea
+    id: requirement
+    attributes:
+      label: Requirement
+    validations:
+      required: true
+  - type: textarea
+    id: authority
+    attributes:
+      label: Authority
+    validations:
+      required: true
+  - type: textarea
+    id: execution
+    attributes:
+      label: Execution
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Value
+    validations:
+      required: true
+  - type: dropdown
+    id: human_gate
+    attributes:
+      label: Required Human Gate
+      options:
+        - Gate 0 — Registry Acceptance
+        - Gate 1 — Requirement Authority
+        - Gate 2 — Funding / Eligibility / Representation
+        - Gate 3 — Build Authorization
+        - Gate 4 — External Release
+        - Gate 5 — Financial Commitment
+        - Gate 6 — Evidence Lock
+        - Gate 7 — L2KM Integration
+    validations:
+      required: true
