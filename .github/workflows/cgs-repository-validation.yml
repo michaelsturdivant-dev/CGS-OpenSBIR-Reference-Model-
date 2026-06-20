@@ -1,0 +1,33 @@
+name: CGS Repository Validation
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-cgs-controls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate CGS governance files
+        run: |
+          REQUIRED_FILES=("docs/CGS_CUBE_EAGLE_TERMS_OF_REFERENCE.md" ".github/CODEOWNERS" ".github/pull_request_template.md" ".github/ISSUE_TEMPLATE/cgs_cube_intake.yml" "evidence/approval-record.md" "evidence/release-notes.md" "evidence/test-log.md")
+          missing=0
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "Missing required CGS file: $file"
+              missing=1
+            else
+              echo "Found: $file"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+      - name: Check for secret file exposure
+        run: |
+          if [ -f ".env" ]; then echo ".env file must not be committed."; exit 1; fi
+      - name: Confirm CGS doctrine
+        run: grep -R "CUBE-EAGLE may use SaaS" docs/CGS_CUBE_EAGLE_TERMS_OF_REFERENCE.md
