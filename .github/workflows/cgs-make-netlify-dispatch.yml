@@ -1,0 +1,103 @@
+name: CGS Make and Netlify Dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      cgs_gate:
+        description: 'Required CGS clearance gate approval reference'
+        required: true
+        default: 'Gate 4 pending'
+      deploy_to_netlify:
+        description: 'Deploy to Netlify after clearance? true/false'
+        required: true
+        default: 'false'
+      notify_make:
+        description: 'Notify Make.com webhook? true/false'
+        required: true
+        default: 'true'
+
+permissions:
+  contents: read
+
+jobs:
+  cgs-clearance-check:
+    runs-on: ubuntu-latest
+    outputs:
+      cleared: ${{ steps.clearance.outputs.cleared }}
+    steps:
+      - name: Evaluate CGS human clearance gate
+        id: clearance
+        run: |
+          echo "CGS Gate Input: ${{ github.event.inputs.cgs_gate }}"
+          if [[ "${{ github.event.inputs.cgs_gate }}" == *"approved"* || "${{ github.event.inputs.cgs_gate }}" == *"APPROVED"* ]]; then
+            echo "cleared=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cleared=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  notify-make:
+    runs-on: ubuntu-latest
+    needs: cgs-clearance-check
+    if: github.event.inputs.notify_make == 'true'
+    steps:
+      - name: Send CGS event to Make.com webhook
+        env:
+          MAKE_WEBHOOK_URL: ${{ secrets.MAKE_WEBHOOK_URL }}
+        run: |
+          if [ -z "$MAKE_WEBHOOK_URL" ]; then
+            echo "MAKE_WEBHOOK_URL secret is not configured. Skipping Make dispatch."
+            exit 0
+          fi
+          curl -X POST "$MAKE_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "event_type":"cgs.github.dispatch",
+              "source_system":"GitHub",
+              "repository":"${{ github.repository }}",
+              "requested_action":"make_webhook_notification",
+              "human_gate_required":"Gate 4 / Gate 5 as applicable",
+              "clearance_status":"${{ github.event.inputs.cgs_gate }}",
+              "target_adapter":"Make.com",
+              "adapter_role":"Webhook relay only",
+              "risk_level":"medium",
+              "evidence_required":true,
+              "doctrine_acknowledged":true,
+              "rule":"CUBE-EAGLE may use SaaS. SaaS may not use CUBE-EAGLE.",
+              "run_id":"${{ github.run_id }}",
+              "sha":"${{ github.sha }}"
+            }'
+
+  deploy-netlify:
+    runs-on: ubuntu-latest
+    needs: cgs-clearance-check
+    if: github.event.inputs.deploy_to_netlify == 'true' && needs.cgs-clearance-check.outputs.cleared == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Netlify with CGS clearance
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "NETLIFY_AUTH_TOKEN or NETLIFY_SITE_ID secret is not configured. Skipping Netlify deploy."
+            exit 0
+          fi
+          npm install -g netlify-cli
+          if [ -d "public" ]; then
+            netlify deploy --prod --dir=public --site="$NETLIFY_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN"
+          elif [ -d "dist" ]; then
+            netlify deploy --prod --dir=dist --site="$NETLIFY_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN"
+          else
+            echo "No public or dist directory found. Add a build step or deploy directory."
+            exit 1
+          fi
+
+  deployment-blocked:
+    runs-on: ubuntu-latest
+    needs: cgs-clearance-check
+    if: github.event.inputs.deploy_to_netlify == 'true' && needs.cgs-clearance-check.outputs.cleared != 'true'
+    steps:
+      - name: Block deployment without clearance
+        run: |
+          echo "Netlify deployment blocked. Gate 4 must be marked approved in workflow input."
+          exit 1
