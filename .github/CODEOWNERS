@@ -1,0 +1,11 @@
+# CGS CODEOWNERS
+/docs/ @michaelsturdivant-dev
+/api/ @michaelsturdivant-dev
+/functions/ @michaelsturdivant-dev
+/integrations/ @michaelsturdivant-dev
+/schemas/ @michaelsturdivant-dev
+/agents/ @michaelsturdivant-dev
+/evidence/ @michaelsturdivant-dev
+/.github/workflows/ @michaelsturdivant-dev
+/.env.example @michaelsturdivant-dev
+/README.md @michaelsturdivant-dev
