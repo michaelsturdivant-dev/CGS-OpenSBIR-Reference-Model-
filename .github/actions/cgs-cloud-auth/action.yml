@@ -114,26 +114,47 @@ runs:
 
     - name: Configure AWS through GitHub OIDC
       if: steps.detect.outputs.aws_mode == 'oidc'
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ steps.detect.outputs.role_arn }}
         aws-region: ${{ inputs.aws-region }}
         role-session-name: CGSGitHubActions
+        retry-max-attempts: '3'
+        action-timeout-s: '45'
+        mask-aws-account-id: true
+        unset-current-credentials: true
+        allowed-account-ids: ${{ inputs.aws-account-id }}
 
     - name: Configure AWS through access-key fallback
       if: steps.detect.outputs.aws_mode == 'access-keys'
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         aws-access-key-id: ${{ inputs.aws-access-key-id }}
         aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
         aws-region: ${{ inputs.aws-region }}
+        retry-max-attempts: '3'
+        action-timeout-s: '45'
+        mask-aws-account-id: true
+        unset-current-credentials: true
+        allowed-account-ids: ${{ inputs.aws-account-id }}
 
     - name: Verify AWS authority
       if: steps.detect.outputs.aws_mode != 'none'
       shell: bash
+      env:
+        EXPECTED_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+        SELECTED_ROLE_ARN: ${{ steps.detect.outputs.role_arn }}
       run: |
         set -euo pipefail
-        aws sts get-caller-identity
+        actual_account="$(aws sts get-caller-identity --query Account --output text)"
+        expected_account="$EXPECTED_ACCOUNT_ID"
+        if [ -z "$expected_account" ] && [[ "$SELECTED_ROLE_ARN" =~ ^arn:aws:iam::([0-9]{12}):role/ ]]; then
+          expected_account="${BASH_REMATCH[1]}"
+        fi
+        if [ -n "$expected_account" ] && [ "$actual_account" != "$expected_account" ]; then
+          echo "::error::CGS AWS authority resolved to an unexpected AWS account."
+          exit 1
+        fi
         echo "CGS AWS authority verified via ${{ steps.detect.outputs.aws_mode }}." >> "$GITHUB_STEP_SUMMARY"
 
     - name: Publish Netlify authority state
