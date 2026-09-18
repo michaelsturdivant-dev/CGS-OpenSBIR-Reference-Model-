@@ -72,7 +72,7 @@ jobs:
     needs: cgs-clearance-check
     if: github.event.inputs.deploy_to_netlify == 'true' && needs.cgs-clearance-check.outputs.cleared == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Establish CGS Netlify authority
         uses: ./.github/actions/cgs-cloud-auth
