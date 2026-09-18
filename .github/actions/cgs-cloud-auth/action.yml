@@ -45,8 +45,8 @@ inputs:
 
 outputs:
   aws-mode:
-    description: AWS authentication mode selected by the preflight
-    value: ${{ steps.detect.outputs.aws_mode }}
+    description: AWS authentication mode that actually succeeded
+    value: ${{ steps.resolve.outputs.aws_mode }}
   role-arn:
     description: OIDC role ARN selected by the preflight
     value: ${{ steps.detect.outputs.role_arn }}
@@ -57,7 +57,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Detect CGS cloud authority
+    - name: Detect CGS cloud authority candidates
       id: detect
       shell: bash
       env:
@@ -66,35 +66,30 @@ runs:
         AWS_ROLE_NAME_INPUT: ${{ inputs.aws-role-name }}
         AWS_ACCESS_KEY_ID_INPUT: ${{ inputs.aws-access-key-id }}
         AWS_SECRET_ACCESS_KEY_INPUT: ${{ inputs.aws-secret-access-key }}
-        REQUIRE_AWS: ${{ inputs.require-aws }}
         NETLIFY_AUTH_TOKEN_INPUT: ${{ inputs.netlify-auth-token }}
         NETLIFY_SITE_ID_INPUT: ${{ inputs.netlify-site-id }}
         REQUIRE_NETLIFY: ${{ inputs.require-netlify }}
       run: |
         set -euo pipefail
-        aws_mode="none"
+
         role_arn=""
         role_name="${AWS_ROLE_NAME_INPUT:-GitHubActionsOIDCRole}"
 
         if [ -n "$AWS_ROLE_ARN_INPUT" ]; then
-          aws_mode="oidc"
           role_arn="$AWS_ROLE_ARN_INPUT"
         elif [ -n "$AWS_ACCOUNT_ID_INPUT" ]; then
           if ! [[ "$AWS_ACCOUNT_ID_INPUT" =~ ^[0-9]{12}$ ]]; then
             echo "::error::CGS cloud preflight: AWS_ACCOUNT_ID must be a 12-digit AWS account ID."
             exit 1
           fi
-          aws_mode="oidc"
           role_arn="arn:aws:iam::${AWS_ACCOUNT_ID_INPUT}:role/${role_name}"
-        elif [ -n "$AWS_ACCESS_KEY_ID_INPUT" ] && [ -n "$AWS_SECRET_ACCESS_KEY_INPUT" ]; then
-          aws_mode="access-keys"
-        elif [ -n "$AWS_ACCESS_KEY_ID_INPUT" ] || [ -n "$AWS_SECRET_ACCESS_KEY_INPUT" ]; then
-          echo "::error::CGS cloud preflight: only one AWS access-key secret is configured. Configure both or use OIDC."
-          exit 1
         fi
 
-        if [ "$REQUIRE_AWS" = "true" ] && [ "$aws_mode" = "none" ]; then
-          echo "::error::CGS cloud preflight: no AWS authority is configured. Add AWS_DEPLOY_ROLE_ARN, AWS_ACCOUNT_ID, or both AWS access-key secrets in the selected GitHub Environment/repository settings."
+        access_keys_ready="false"
+        if [ -n "$AWS_ACCESS_KEY_ID_INPUT" ] && [ -n "$AWS_SECRET_ACCESS_KEY_INPUT" ]; then
+          access_keys_ready="true"
+        elif [ -n "$AWS_ACCESS_KEY_ID_INPUT" ] || [ -n "$AWS_SECRET_ACCESS_KEY_INPUT" ]; then
+          echo "::error::CGS cloud preflight: only one AWS access-key secret is configured. Configure both or remove the incomplete fallback."
           exit 1
         fi
 
@@ -108,36 +103,70 @@ runs:
           exit 1
         fi
 
-        echo "aws_mode=$aws_mode" >> "$GITHUB_OUTPUT"
         echo "role_arn=$role_arn" >> "$GITHUB_OUTPUT"
+        echo "access_keys_ready=$access_keys_ready" >> "$GITHUB_OUTPUT"
         echo "netlify_ready=$netlify_ready" >> "$GITHUB_OUTPUT"
 
     - name: Configure AWS through GitHub OIDC
-      if: steps.detect.outputs.aws_mode == 'oidc'
+      id: oidc
+      if: steps.detect.outputs.role_arn != ''
+      continue-on-error: true
       uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ steps.detect.outputs.role_arn }}
         aws-region: ${{ inputs.aws-region }}
         role-session-name: CGSGitHubActions
-        retry-max-attempts: '1'
+        disable-retry: true
         mask-aws-account-id: true
         unset-current-credentials: true
-        allowed-account-ids: ${{ inputs.aws-account-id }}
 
     - name: Configure AWS through access-key fallback
-      if: steps.detect.outputs.aws_mode == 'access-keys'
+      id: access_keys
+      if: steps.detect.outputs.access_keys_ready == 'true' && steps.oidc.outcome != 'success'
       uses: aws-actions/configure-aws-credentials@v6
       with:
         aws-access-key-id: ${{ inputs.aws-access-key-id }}
         aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
         aws-region: ${{ inputs.aws-region }}
-        retry-max-attempts: '1'
+        force-skip-oidc: true
         mask-aws-account-id: true
         unset-current-credentials: true
-        allowed-account-ids: ${{ inputs.aws-account-id }}
+
+    - name: Resolve CGS AWS authority
+      id: resolve
+      shell: bash
+      env:
+        OIDC_OUTCOME: ${{ steps.oidc.outcome }}
+        ACCESS_KEY_OUTCOME: ${{ steps.access_keys.outcome }}
+        ROLE_ARN: ${{ steps.detect.outputs.role_arn }}
+        ACCESS_KEYS_READY: ${{ steps.detect.outputs.access_keys_ready }}
+        REQUIRE_AWS: ${{ inputs.require-aws }}
+      run: |
+        set -euo pipefail
+
+        aws_mode="none"
+        if [ "$OIDC_OUTCOME" = "success" ]; then
+          aws_mode="oidc"
+        elif [ "$ACCESS_KEY_OUTCOME" = "success" ]; then
+          aws_mode="access-keys"
+          echo "::warning::CGS AWS authority is using the access-key fallback because OIDC did not succeed."
+        fi
+
+        echo "aws_mode=$aws_mode" >> "$GITHUB_OUTPUT"
+
+        if [ "$REQUIRE_AWS" = "true" ] && [ "$aws_mode" = "none" ]; then
+          if [ -n "$ROLE_ARN" ] && [ "$ACCESS_KEYS_READY" != "true" ]; then
+            echo "::error::CGS AWS authority failed: GitHub OIDC could not assume the configured role and no complete access-key fallback is available. Run the CGS AWS OIDC diagnostic/repair path."
+          elif [ -z "$ROLE_ARN" ] && [ "$ACCESS_KEYS_READY" != "true" ]; then
+            echo "::error::CGS AWS authority failed: configure AWS_DEPLOY_ROLE_ARN or AWS_ACCOUNT_ID for OIDC, or configure both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY."
+          else
+            echo "::error::CGS AWS authority failed through every configured authentication path."
+          fi
+          exit 1
+        fi
 
     - name: Verify AWS authority
-      if: steps.detect.outputs.aws_mode != 'none'
+      if: steps.resolve.outputs.aws_mode != 'none'
       shell: bash
       env:
         EXPECTED_ACCOUNT_ID: ${{ inputs.aws-account-id }}
@@ -153,7 +182,7 @@ runs:
           echo "::error::CGS AWS authority resolved to an unexpected AWS account."
           exit 1
         fi
-        echo "CGS AWS authority verified via ${{ steps.detect.outputs.aws_mode }}." >> "$GITHUB_STEP_SUMMARY"
+        echo "CGS AWS authority verified via ${{ steps.resolve.outputs.aws_mode }}." >> "$GITHUB_STEP_SUMMARY"
 
     - name: Publish Netlify authority state
       shell: bash
