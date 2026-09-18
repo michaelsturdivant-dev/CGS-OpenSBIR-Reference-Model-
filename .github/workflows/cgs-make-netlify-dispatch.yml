@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   cgs-clearance-check:
@@ -45,12 +46,10 @@ jobs:
           MAKE_WEBHOOK_URL: ${{ secrets.MAKE_WEBHOOK_URL }}
         run: |
           if [ -z "$MAKE_WEBHOOK_URL" ]; then
-            echo "MAKE_WEBHOOK_URL secret is not configured. Skipping Make dispatch."
+            echo "::notice::MAKE_WEBHOOK_URL is not configured. Make dispatch skipped."
             exit 0
           fi
-          curl -X POST "$MAKE_WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d '{
+          curl --fail --show-error --silent -X POST "$MAKE_WEBHOOK_URL"             -H "Content-Type: application/json"             -d '{
               "event_type":"cgs.github.dispatch",
               "source_system":"GitHub",
               "repository":"${{ github.repository }}",
@@ -75,28 +74,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify CGS Netlify deployment authority
-        shell: bash
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID || vars.NETLIFY_SITE_ID }}
-        run: |
-          set -euo pipefail
-          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
-            echo "::error::CGS Netlify preflight: NETLIFY_AUTH_TOKEN is missing from the production environment/repository secrets."
-            exit 1
-          fi
-          if [ -z "$NETLIFY_SITE_ID" ]; then
-            echo "::error::CGS Netlify preflight: NETLIFY_SITE_ID is missing from production environment/repository secrets or variables."
-            exit 1
-          fi
-          echo "CGS Netlify authority preflight: ready." >> "$GITHUB_STEP_SUMMARY"
+      - name: Establish CGS Netlify authority
+        uses: ./.github/actions/cgs-cloud-auth
+        with:
+          require-aws: 'false'
+          netlify-auth-token: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          netlify-site-id: ${{ secrets.NETLIFY_SITE_ID || vars.NETLIFY_SITE_ID }}
+          require-netlify: 'true'
 
       - name: Deploy to Netlify with CGS clearance
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID || vars.NETLIFY_SITE_ID }}
         run: |
+          set -euo pipefail
           npm install -g netlify-cli
           if [ -d "public" ]; then
             netlify deploy --prod --dir=public --site="$NETLIFY_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN"
@@ -114,5 +105,5 @@ jobs:
     steps:
       - name: Block deployment without clearance
         run: |
-          echo "Netlify deployment blocked. Gate 4 must be marked approved in workflow input."
+          echo "::error::Netlify deployment blocked. Gate 4 must be marked approved in workflow input."
           exit 1
