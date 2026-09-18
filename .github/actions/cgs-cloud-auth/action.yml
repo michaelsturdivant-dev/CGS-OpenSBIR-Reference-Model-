@@ -119,8 +119,7 @@ runs:
         role-to-assume: ${{ steps.detect.outputs.role_arn }}
         aws-region: ${{ inputs.aws-region }}
         role-session-name: CGSGitHubActions
-        retry-max-attempts: '3'
-        action-timeout-s: '45'
+        retry-max-attempts: '1'
         mask-aws-account-id: true
         unset-current-credentials: true
         allowed-account-ids: ${{ inputs.aws-account-id }}
@@ -132,8 +131,7 @@ runs:
         aws-access-key-id: ${{ inputs.aws-access-key-id }}
         aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
         aws-region: ${{ inputs.aws-region }}
-        retry-max-attempts: '3'
-        action-timeout-s: '45'
+        retry-max-attempts: '1'
         mask-aws-account-id: true
         unset-current-credentials: true
         allowed-account-ids: ${{ inputs.aws-account-id }}
