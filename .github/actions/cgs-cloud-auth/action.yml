@@ -1,0 +1,146 @@
+name: CGS Cloud Authority
+description: Standard CGS AWS and Netlify credential bootstrap for governed GitHub Actions deployments.
+
+inputs:
+  aws-region:
+    description: AWS region
+    required: false
+    default: us-east-2
+  aws-role-arn:
+    description: Preferred explicit AWS IAM role ARN for GitHub OIDC
+    required: false
+    default: ''
+  aws-account-id:
+    description: AWS account ID used to derive the OIDC role ARN when an explicit ARN is not configured
+    required: false
+    default: ''
+  aws-role-name:
+    description: AWS IAM role name used with aws-account-id
+    required: false
+    default: GitHubActionsOIDCRole
+  aws-access-key-id:
+    description: Legacy AWS access key fallback
+    required: false
+    default: ''
+  aws-secret-access-key:
+    description: Legacy AWS secret key fallback
+    required: false
+    default: ''
+  require-aws:
+    description: Fail when no AWS authority can be established
+    required: false
+    default: 'true'
+  netlify-auth-token:
+    description: Netlify auth token
+    required: false
+    default: ''
+  netlify-site-id:
+    description: Netlify site ID
+    required: false
+    default: ''
+  require-netlify:
+    description: Fail when Netlify authority is not configured
+    required: false
+    default: 'false'
+
+outputs:
+  aws-mode:
+    description: AWS authentication mode selected by the preflight
+    value: ${{ steps.detect.outputs.aws_mode }}
+  role-arn:
+    description: OIDC role ARN selected by the preflight
+    value: ${{ steps.detect.outputs.role_arn }}
+  netlify-ready:
+    description: Whether Netlify token and site ID are available
+    value: ${{ steps.detect.outputs.netlify_ready }}
+
+runs:
+  using: composite
+  steps:
+    - name: Detect CGS cloud authority
+      id: detect
+      shell: bash
+      env:
+        AWS_ROLE_ARN_INPUT: ${{ inputs.aws-role-arn }}
+        AWS_ACCOUNT_ID_INPUT: ${{ inputs.aws-account-id }}
+        AWS_ROLE_NAME_INPUT: ${{ inputs.aws-role-name }}
+        AWS_ACCESS_KEY_ID_INPUT: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY_INPUT: ${{ inputs.aws-secret-access-key }}
+        REQUIRE_AWS: ${{ inputs.require-aws }}
+        NETLIFY_AUTH_TOKEN_INPUT: ${{ inputs.netlify-auth-token }}
+        NETLIFY_SITE_ID_INPUT: ${{ inputs.netlify-site-id }}
+        REQUIRE_NETLIFY: ${{ inputs.require-netlify }}
+      run: |
+        set -euo pipefail
+        aws_mode="none"
+        role_arn=""
+        role_name="${AWS_ROLE_NAME_INPUT:-GitHubActionsOIDCRole}"
+
+        if [ -n "$AWS_ROLE_ARN_INPUT" ]; then
+          aws_mode="oidc"
+          role_arn="$AWS_ROLE_ARN_INPUT"
+        elif [ -n "$AWS_ACCOUNT_ID_INPUT" ]; then
+          if ! [[ "$AWS_ACCOUNT_ID_INPUT" =~ ^[0-9]{12}$ ]]; then
+            echo "::error::CGS cloud preflight: AWS_ACCOUNT_ID must be a 12-digit AWS account ID."
+            exit 1
+          fi
+          aws_mode="oidc"
+          role_arn="arn:aws:iam::${AWS_ACCOUNT_ID_INPUT}:role/${role_name}"
+        elif [ -n "$AWS_ACCESS_KEY_ID_INPUT" ] && [ -n "$AWS_SECRET_ACCESS_KEY_INPUT" ]; then
+          aws_mode="access-keys"
+        elif [ -n "$AWS_ACCESS_KEY_ID_INPUT" ] || [ -n "$AWS_SECRET_ACCESS_KEY_INPUT" ]; then
+          echo "::error::CGS cloud preflight: only one AWS access-key secret is configured. Configure both or use OIDC."
+          exit 1
+        fi
+
+        if [ "$REQUIRE_AWS" = "true" ] && [ "$aws_mode" = "none" ]; then
+          echo "::error::CGS cloud preflight: no AWS authority is configured. Add AWS_DEPLOY_ROLE_ARN, AWS_ACCOUNT_ID, or both AWS access-key secrets in the selected GitHub Environment/repository settings."
+          exit 1
+        fi
+
+        netlify_ready="false"
+        if [ -n "$NETLIFY_AUTH_TOKEN_INPUT" ] && [ -n "$NETLIFY_SITE_ID_INPUT" ]; then
+          netlify_ready="true"
+        fi
+
+        if [ "$REQUIRE_NETLIFY" = "true" ] && [ "$netlify_ready" != "true" ]; then
+          echo "::error::CGS cloud preflight: Netlify authority is incomplete. Configure NETLIFY_AUTH_TOKEN and NETLIFY_SITE_ID in the selected GitHub Environment/repository settings."
+          exit 1
+        fi
+
+        echo "aws_mode=$aws_mode" >> "$GITHUB_OUTPUT"
+        echo "role_arn=$role_arn" >> "$GITHUB_OUTPUT"
+        echo "netlify_ready=$netlify_ready" >> "$GITHUB_OUTPUT"
+
+    - name: Configure AWS through GitHub OIDC
+      if: steps.detect.outputs.aws_mode == 'oidc'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ steps.detect.outputs.role_arn }}
+        aws-region: ${{ inputs.aws-region }}
+        role-session-name: CGSGitHubActions
+
+    - name: Configure AWS through access-key fallback
+      if: steps.detect.outputs.aws_mode == 'access-keys'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Verify AWS authority
+      if: steps.detect.outputs.aws_mode != 'none'
+      shell: bash
+      run: |
+        set -euo pipefail
+        aws sts get-caller-identity
+        echo "CGS AWS authority verified via ${{ steps.detect.outputs.aws_mode }}." >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Publish Netlify authority state
+      shell: bash
+      run: |
+        if [ "${{ steps.detect.outputs.netlify_ready }}" = "true" ]; then
+          echo "CGS Netlify authority preflight: ready." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "CGS Netlify authority preflight: not configured for this job." >> "$GITHUB_STEP_SUMMARY"
+        fi
