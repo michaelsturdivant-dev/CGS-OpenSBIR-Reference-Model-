@@ -69,26 +69,41 @@ jobs:
 
   deploy-netlify:
     runs-on: ubuntu-latest
+    environment: production
     needs: cgs-clearance-check
     if: github.event.inputs.deploy_to_netlify == 'true' && needs.cgs-clearance-check.outputs.cleared == 'true'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify CGS Netlify deployment authority
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID || vars.NETLIFY_SITE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
+            echo "::error::CGS Netlify preflight: NETLIFY_AUTH_TOKEN is missing from the production environment/repository secrets."
+            exit 1
+          fi
+          if [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "::error::CGS Netlify preflight: NETLIFY_SITE_ID is missing from production environment/repository secrets or variables."
+            exit 1
+          fi
+          echo "CGS Netlify authority preflight: ready." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Deploy to Netlify with CGS clearance
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID || vars.NETLIFY_SITE_ID }}
         run: |
-          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
-            echo "NETLIFY_AUTH_TOKEN or NETLIFY_SITE_ID secret is not configured. Skipping Netlify deploy."
-            exit 0
-          fi
           npm install -g netlify-cli
           if [ -d "public" ]; then
             netlify deploy --prod --dir=public --site="$NETLIFY_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN"
           elif [ -d "dist" ]; then
             netlify deploy --prod --dir=dist --site="$NETLIFY_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN"
           else
-            echo "No public or dist directory found. Add a build step or deploy directory."
+            echo "::error::No public or dist directory found. Add a build step or deploy directory."
             exit 1
           fi
 
